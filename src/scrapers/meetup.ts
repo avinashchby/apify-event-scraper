@@ -117,34 +117,51 @@ export class MeetupScraper extends BaseScraper {
   /** Playwright path — renders the search page and extracts events from the resulting HTML. */
   private async scrapeViaPlaywright(): Promise<EventItem[]> {
     const url = this.buildSearchUrl();
-    let html: string;
 
-    // Isolate browser lifetime: close before doing any CPU-bound HTML parsing
-    {
-      const browser = await chromium.launch({ headless: true });
-      try {
-        const context = await browser.newContext({
-          userAgent:
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        });
-        const page = await context.newPage();
-        await this.randomDelay();
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
-        console.log(`[meetup] page title: "${await page.title()}"`);
-        html = await page.content();
-        console.log(`[meetup] html length: ${html.length}`);
-      } finally {
-        await browser.close();
+    // Meetup uses Cloudflare Bot Management — try up to 2 times with different wait strategies
+    for (const [attempt, waitUntil, extraWait] of [
+      [1, 'networkidle', 0],
+      [2, 'load', 6000],
+    ] as const) {
+      const html = await this.fetchHtml(url, waitUntil as 'networkidle' | 'load', extraWait);
+      console.log(`[meetup] attempt ${attempt}: html=${html.length} bytes`);
+
+      // If HTML is too small it's a bot-challenge page — retry
+      if (html.length < 500000) {
+        console.log(`[meetup] attempt ${attempt}: page likely bot-blocked, ${attempt < 2 ? 'retrying' : 'giving up'}`);
+        if (attempt < 2) continue;
+        return [];
       }
+
+      const jsonLdEvents = this.parseEvents(html);
+      console.log(`[meetup] JSON-LD parsing found ${jsonLdEvents.length} events`);
+      if (jsonLdEvents.length > 0) return jsonLdEvents;
+
+      const linkEvents = this.parseEventLinks(html);
+      if (linkEvents.length > 0) return linkEvents;
     }
 
-    // Try JSON-LD first (populated on some Meetup pages)
-    const jsonLdEvents = this.parseEvents(html);
-    console.log(`[meetup] JSON-LD parsing found ${jsonLdEvents.length} events`);
-    if (jsonLdEvents.length > 0) return jsonLdEvents;
+    return [];
+  }
 
-    // Fallback: extract event card links from React-rendered HTML via cheerio
-    return this.parseEventLinks(html);
+  private async fetchHtml(url: string, waitUntil: 'networkidle' | 'load', extraWaitMs: number): Promise<string> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const context = await browser.newContext({
+        userAgent:
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      });
+      const page = await context.newPage();
+      await this.randomDelay();
+      // Warm up: visit homepage first so Cloudflare grants a session token
+      await page.goto('https://www.meetup.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+      await page.goto(url, { waitUntil, timeout: 45000 });
+      if (extraWaitMs > 0) await page.waitForTimeout(extraWaitMs);
+      console.log(`[meetup] page title: "${await page.title()}"`);
+      return page.content();
+    } finally {
+      await browser.close();
+    }
   }
 
   private buildSearchUrl(): string {
