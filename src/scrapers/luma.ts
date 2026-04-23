@@ -91,7 +91,7 @@ export class LumaScraper extends BaseScraper {
         });
         const pageTitle = await page.title();
         const htmlLen = (await page.content()).length;
-        console.log(`[luma] __NEXT_DATA__ fallback. page="${pageTitle}" htmlLen=${htmlLen} nextDataKeys=${JSON.stringify(Object.keys((nextData as Record<string,unknown>) ?? {}))}`);
+        console.log(`[luma] __NEXT_DATA__ fallback. page="${pageTitle}" htmlLen=${htmlLen}`);
         data = this.extractFromNextData(nextData);
       }
 
