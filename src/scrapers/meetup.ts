@@ -1,124 +1,111 @@
+import * as cheerio from 'cheerio';
 import type { EventItem, VenueInfo } from '../types';
 import { parseDate, stripHtml, detectFormat, buildLocation } from '../utils/normalize';
 import { BaseScraper, ScraperOptions } from './base';
 
-const GRAPHQL_URL = 'https://api.meetup.com/gql';
-
-const SEARCH_QUERY = `
-query SearchEvents($query: String!, $lat: Float, $lon: Float, $radius: Int) {
-  keywordSearch(
-    filter: { query: $query, lat: $lat, lon: $lon, radius: $radius }
-    input: { first: 50 }
-    sort: { sortField: DATETIME }
-  ) {
-    edges {
-      node {
-        ... on Event {
-          id
-          title
-          dateTime
-          endTime
-          description
-          eventUrl
-          isOnline
-          venue { name city state country lat lon }
-          feeSettings { amount currency }
-          group { name }
-          featuredEventPhoto { highResUrl }
-        }
-      }
-    }
-    pageInfo { endCursor hasNextPage }
-  }
-}`;
-
-interface MeetupEvent {
-  id: string;
-  title: string;
-  dateTime: string;
-  endTime?: string;
+interface MeetupJsonLdEvent {
+  '@type': string;
+  name?: string;
+  url?: string;
   description?: string;
-  eventUrl: string;
-  isOnline: boolean;
-  venue?: { name?: string; city?: string; state?: string; country?: string; lat?: number; lon?: number };
-  feeSettings?: { amount?: number; currency?: string } | null;
-  group?: { name?: string };
-  featuredEventPhoto?: { highResUrl?: string };
-}
-
-interface MeetupResponse {
-  data?: {
-    keywordSearch?: {
-      edges?: { node?: MeetupEvent }[];
+  startDate?: string;
+  endDate?: string;
+  image?: string;
+  eventAttendanceMode?: string;
+  location?: {
+    '@type'?: string;
+    name?: string;
+    address?: {
+      addressLocality?: string;
+      addressRegion?: string;
+      addressCountry?: string;
+      streetAddress?: string;
     };
   };
+  organizer?: { name?: string; url?: string };
 }
 
-/** Scrapes events from Meetup's public GraphQL API. */
+/** Scrapes events from Meetup's public search page JSON-LD. */
 export class MeetupScraper extends BaseScraper {
   constructor(options: ScraperOptions) {
     super(options);
   }
 
   async scrape(): Promise<EventItem[]> {
-    const loc = this.input.location;
-    const variables: Record<string, unknown> = {
-      query: this.input.query ?? '',
-      lat: loc?.lat,
-      lon: loc?.lng,
-      radius: loc?.radiusKm ? Math.round(loc.radiusKm * 0.621371) : undefined,
-    };
+    const params = new URLSearchParams({
+      keywords: this.input.query ?? '',
+      source: 'EVENTS',
+    });
+    const url = `https://www.meetup.com/find/?${params.toString()}`;
 
     const res = await this.withRetry(() =>
-      this.fetch(GRAPHQL_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ query: SEARCH_QUERY, variables }),
+      this.fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
       })
     );
-
     if (!res.ok) throw new Error(`Meetup HTTP ${res.status}`);
-
-    const json = (await res.json()) as MeetupResponse;
-    const edges = json.data?.keywordSearch?.edges ?? [];
-    const now = new Date().toISOString();
-
-    return edges
-      .map((e) => e.node)
-      .filter((n): n is MeetupEvent => !!n?.eventUrl)
-      .slice(0, this.maxResults)
-      .map((ev) => this.normalizeEvent(ev, now));
+    return this.parseEvents(await res.text());
   }
 
-  private normalizeEvent(ev: MeetupEvent, scrapedAt: string): EventItem {
-    const city = ev.venue?.city;
-    const country = ev.venue?.country?.toUpperCase();
+  parseEvents(html: string): EventItem[] {
+    const $ = cheerio.load(html);
+    const items: EventItem[] = [];
+    const now = new Date().toISOString();
+
+    $('script[type="application/ld+json"]').each((_, el) => {
+      if (items.length >= this.maxResults) return false;
+      try {
+        const raw: unknown = JSON.parse($(el).html() ?? '{}');
+        const entries = Array.isArray(raw) ? raw : [raw];
+        for (const ev of entries as MeetupJsonLdEvent[]) {
+          if (items.length >= this.maxResults) break;
+          if (ev['@type'] !== 'Event' || !ev.name || !ev.url || !ev.startDate) continue;
+          const item = this.normalizeEntry(ev, now);
+          if (item) items.push(item);
+        }
+      } catch {
+        // malformed JSON-LD — skip
+      }
+    });
+
+    return items;
+  }
+
+  private normalizeEntry(ev: MeetupJsonLdEvent, scrapedAt: string): EventItem | null {
+    if (!ev.startDate || !ev.name || !ev.url) return null;
+    const addr = ev.location?.address;
+    const city = addr?.addressLocality;
+    const country = addr?.addressCountry?.toUpperCase();
     const venue: VenueInfo = {
-      name: ev.venue?.name,
+      name: ev.location?.name,
+      address: addr?.streetAddress,
       city,
       country,
-      lat: ev.venue?.lat,
-      lng: ev.venue?.lon,
     };
+    const isOnline =
+      ev.eventAttendanceMode?.includes('OnlineEventAttendanceMode') ?? false;
     const desc = stripHtml(ev.description ?? '');
-    const isFree = !ev.feeSettings?.amount || ev.feeSettings.amount === 0;
+    const image = ev.image?.startsWith('http') ? ev.image : undefined;
 
     return {
-      name: ev.title,
-      url: ev.eventUrl,
-      startAt: parseDate(ev.dateTime),
-      endDate: ev.endTime ? parseDate(ev.endTime) : undefined,
+      name: ev.name,
+      url: ev.url,
+      startAt: parseDate(ev.startDate),
+      endDate: ev.endDate ? parseDate(ev.endDate) : undefined,
       description: desc,
       location: buildLocation(city, country),
       venue,
-      isOnline: ev.isOnline,
-      format: detectFormat(ev.title, desc),
-      isFree,
-      ticketPrice: isFree
-        ? 'Free'
-        : `${ev.feeSettings?.amount ?? ''} ${ev.feeSettings?.currency ?? ''}`.trim(),
-      imageUrl: ev.featuredEventPhoto?.highResUrl,
-      organizer: ev.group?.name,
+      isOnline,
+      format: detectFormat(ev.name, desc),
+      isFree: true, // Meetup search JSON-LD doesn't expose price — default to free
+      ticketPrice: undefined,
+      imageUrl: image,
+      organizer: ev.organizer?.name,
       source: 'meetup',
       scrapedAt,
     };

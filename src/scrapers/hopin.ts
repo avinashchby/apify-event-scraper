@@ -11,21 +11,9 @@ export class HopinScraper extends BaseScraper {
   }
 
   async scrape(): Promise<EventItem[]> {
-    const params = new URLSearchParams();
-    if (this.input.query) params.set('search', this.input.query);
-    const url = `${BASE_URL}/events?${params.toString()}`;
-
-    const res = await this.withRetry(() =>
-      this.fetch(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          Accept: 'text/html,application/xhtml+xml',
-        },
-      })
-    );
-    if (!res.ok) throw new Error(`Hopin HTTP ${res.status}`);
-    return this.parseEvents(await res.text());
+    // hopin.to was shut down after RingCentral acquisition — domain no longer resolves
+    console.warn('[hopin] hopin.to is no longer available. Returning empty results.');
+    return [];
   }
 
   parseEvents(html: string): EventItem[] {

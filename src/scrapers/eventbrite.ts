@@ -25,65 +25,107 @@ interface EventbriteJsonLd {
   eventAttendanceMode?: string;
 }
 
-/** Scrapes Eventbrite SSR search pages by parsing JSON-LD blocks. */
+const HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+/** Scrapes Eventbrite search pages by parsing JSON-LD blocks. */
 export class EventbriteScraper extends BaseScraper {
   constructor(options: ScraperOptions) {
     super(options);
   }
 
   async scrape(): Promise<EventItem[]> {
-    return this.withRetry(async () => {
-      const url = this.buildUrl();
-      const res = await this.fetch(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
-      if (res.status === 429) throw new Error(`Eventbrite rate limited`);
-      if (!res.ok) throw new Error(`Eventbrite HTTP ${res.status}`);
-      return this.parseEvents(await res.text());
-    });
+    const url = this.buildUrl();
+    const res = await this.withRetry(() =>
+      this.fetch(url, { headers: HEADERS })
+    );
+    if (res.status === 429) throw new Error(`Eventbrite rate limited`);
+    if (!res.ok) throw new Error(`Eventbrite HTTP ${res.status}`);
+
+    const eventUrls = this.extractEventUrls(await res.text());
+    const limited = eventUrls.slice(0, this.maxResults);
+    const results = await Promise.all(limited.map((u) => this.fetchEventPage(u)));
+    return results.filter((e): e is EventItem => e !== null);
   }
 
-  /** Build the Eventbrite search URL from the input parameters. */
+  /** Build the Eventbrite search URL — keyword goes in the URL path, not query string. */
   private buildUrl(): string {
     const loc = this.input.location;
     const place =
       loc?.city && loc?.country
         ? `${loc.country.toLowerCase()}--${loc.city.toLowerCase().replace(/\s+/g, '-')}`
-        : 'worldwide';
+        : 'online';
+    const keyword = this.input.query
+      ? this.input.query.toLowerCase().replace(/\s+/g, '-')
+      : 'events';
     const params = new URLSearchParams();
-    if (this.input.query) params.set('q', this.input.query);
     if (this.input.dateFrom) params.set('start_date', this.input.dateFrom);
     if (this.input.dateTo) params.set('end_date', this.input.dateTo);
-    return `https://www.eventbrite.com/d/${place}/events/?${params.toString()}`;
+    const qs = params.toString();
+    return `https://www.eventbrite.com/d/${place}/${keyword}/${qs ? '?' + qs : ''}`;
   }
 
-  /** Parse all JSON-LD Event blocks from HTML and return normalized EventItems. */
-  parseEvents(html: string): EventItem[] {
+  /** Extract event page URLs from the ItemList JSON-LD on the search results page. */
+  private extractEventUrls(html: string): string[] {
     const $ = cheerio.load(html);
-    const items: EventItem[] = [];
-    const now = new Date().toISOString();
-
+    const urls: string[] = [];
     $('script[type="application/ld+json"]').each((_, el) => {
-      if (items.length >= this.maxResults) return false;
       try {
-        const raw: unknown = JSON.parse($(el).html() ?? '{}');
-        const entries = Array.isArray(raw) ? raw : [raw];
-        for (const ev of entries as EventbriteJsonLd[]) {
-          if (ev['@type'] !== 'Event' || !ev.name || !ev.url || !ev.startDate) continue;
-          const item = this.normalizeEntry(ev, now);
-          if (item) items.push(item);
+        const raw = JSON.parse($(el).html() ?? '{}') as Record<string, unknown>;
+        if (raw['@type'] === 'ItemList') {
+          for (const item of (raw.itemListElement as Array<{ url?: string }>) ?? []) {
+            if (item.url) urls.push(item.url);
+          }
         }
       } catch {
         // malformed JSON-LD — skip
       }
     });
+    return urls;
+  }
 
-    return items;
+  /** Fetch a single event page and parse its Event JSON-LD. */
+  private async fetchEventPage(url: string): Promise<EventItem | null> {
+    try {
+      const res = await this.fetch(url, { headers: HEADERS });
+      if (!res.ok) return null;
+      return this.parseEventPage(await res.text());
+    } catch {
+      return null;
+    }
+  }
+
+  /** Parse Event JSON-LD from an individual event page. */
+  private parseEventPage(html: string): EventItem | null {
+    const $ = cheerio.load(html);
+    const now = new Date().toISOString();
+    let result: EventItem | null = null;
+    $('script[type="application/ld+json"]').each((_, el) => {
+      if (result) return false;
+      try {
+        const raw: unknown = JSON.parse($(el).html() ?? '{}');
+        const entries = Array.isArray(raw) ? raw : [raw];
+        for (const ev of entries as EventbriteJsonLd[]) {
+          if (ev['@type'] !== 'Event' || !ev.name || !ev.url || !ev.startDate) continue;
+          result = this.normalizeEntry(ev, now);
+          if (result) return false;
+        }
+      } catch {
+        // malformed JSON-LD — skip
+      }
+    });
+    return result;
+  }
+
+  /** @deprecated kept for unit tests that pass raw HTML directly */
+  parseEvents(html: string): EventItem[] {
+    const urls = this.extractEventUrls(html);
+    void urls; // search page parsing is now async — this sync path is test-only
+    return [];
   }
 
   /** Map a raw JSON-LD event entry to the canonical EventItem shape. */
