@@ -1,3 +1,4 @@
+import { chromium } from 'playwright';
 import * as cheerio from 'cheerio';
 import type { EventItem, VenueInfo } from '../types';
 import { parseDate, stripHtml, detectFormat, buildLocation } from '../utils/normalize';
@@ -38,18 +39,20 @@ export class MeetupScraper extends BaseScraper {
     });
     const url = `https://www.meetup.com/find/?${params.toString()}`;
 
-    const res = await this.withRetry(() =>
-      this.fetch(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      })
-    );
-    if (!res.ok) throw new Error(`Meetup HTTP ${res.status}`);
-    return this.parseEvents(await res.text());
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const context = await browser.newContext({
+        userAgent:
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      });
+      const page = await context.newPage();
+      await this.randomDelay();
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      const html = await page.content();
+      return this.parseEvents(html);
+    } finally {
+      await browser.close();
+    }
   }
 
   parseEvents(html: string): EventItem[] {

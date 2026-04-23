@@ -3,26 +3,35 @@ import type { EventItem, VenueInfo } from '../types';
 import { parseDate, stripHtml, detectFormat, buildLocation } from '../utils/normalize';
 import { BaseScraper, ScraperOptions } from './base';
 
-interface PartifulEvent {
-  id: string;
-  name: string;
-  startAt: string;
-  endAt?: string;
-  description?: string;
+interface PartifulLocationInfo {
   city?: string;
+  state?: string;
   country?: string;
-  displayAddress?: string;
+  fullAddress?: string;
   isVirtual?: boolean;
-  isFree?: boolean;
-  ticketUrl?: string;
-  imageUrl?: string;
-  organizer?: string;
-  tags?: string[];
-  isPublic?: boolean;
 }
 
-interface PartifulResponse {
-  events?: PartifulEvent[];
+interface PartifulEventRaw {
+  id: string;
+  title: string;
+  description?: string;
+  startDate: string;
+  endDate?: string;
+  timezone?: string;
+  hostName?: string;
+  image?: string;
+  isPublic?: boolean;
+  status?: string;
+  locationInfo?: PartifulLocationInfo;
+}
+
+interface PartifulNextData {
+  props?: {
+    pageProps?: {
+      trendingSections?: Record<string, PartifulEventRaw[]> | PartifulEventRaw[];
+      events?: PartifulEventRaw[];
+    };
+  };
 }
 
 export class PartifulScraper extends BaseScraper {
@@ -39,75 +48,101 @@ export class PartifulScraper extends BaseScraper {
       });
       const page = await context.newPage();
 
-      let captured: PartifulResponse | null = null;
-
-      // Partiful has no public REST API — intercept the internal explore endpoint
-      await page.route('**/api/events/**', async (route) => {
-        const response = await route.fetch();
-        try {
-          captured = (await response.json()) as PartifulResponse;
-        } catch {
-          captured = null;
-        }
-        await route.fulfill({ response });
-      });
-
-      const params = new URLSearchParams();
-      if (this.input.query) params.set('q', this.input.query);
-
       await this.randomDelay();
-      await page.goto(`https://partiful.com/explore?${params.toString()}`, {
-        waitUntil: 'networkidle',
+      await page.goto('https://partiful.com/explore', {
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
 
-      const start = Date.now();
-      while (!captured && Date.now() - start < 5000) {
-        await page.waitForTimeout(200);
-      }
+      // Partiful is a Next.js app — event data is SSR'd into __NEXT_DATA__
+      const nextData = await page.evaluate((): unknown => {
+        const el = document.getElementById('__NEXT_DATA__');
+        if (!el || !el.textContent) return null;
+        try {
+          return JSON.parse(el.textContent);
+        } catch {
+          return null;
+        }
+      });
 
-      return captured ? this.normalizeResponse(captured) : [];
+      if (!nextData) return [];
+      return this.extractFromNextData(nextData as PartifulNextData);
     } finally {
       await browser.close();
     }
   }
 
-  normalizeResponse(data: PartifulResponse): EventItem[] {
+  extractFromNextData(data: PartifulNextData): EventItem[] {
+    const pageProps = data?.props?.pageProps;
+    if (!pageProps) return [];
+
+    const rawEvents: PartifulEventRaw[] = [];
+
+    // trendingSections is a dict keyed by city name, each value is an array of events
+    const sections = pageProps.trendingSections;
+    if (sections && !Array.isArray(sections)) {
+      for (const cityEvents of Object.values(sections)) {
+        if (Array.isArray(cityEvents)) rawEvents.push(...cityEvents);
+      }
+    } else if (Array.isArray(sections)) {
+      rawEvents.push(...sections);
+    }
+
+    // some pages expose a flat events array
+    if (pageProps.events && Array.isArray(pageProps.events)) {
+      rawEvents.push(...pageProps.events);
+    }
+
+    // deduplicate by id
+    const seen = new Set<string>();
+    const unique = rawEvents.filter((ev) => {
+      if (!ev.id || seen.has(ev.id)) return false;
+      seen.add(ev.id);
+      return true;
+    });
+
+    const query = this.input.query?.toLowerCase();
     const now = new Date().toISOString();
-    return (data.events ?? [])
-      .filter((ev) => ev.isPublic !== false)
+
+    return unique
+      .filter((ev) => ev.isPublic !== false && ev.status !== 'CANCELLED')
+      .filter((ev) => {
+        if (!query) return true;
+        const text = `${ev.title} ${ev.description ?? ''}`.toLowerCase();
+        return text.includes(query);
+      })
       .slice(0, this.maxResults)
-      .map((ev) => {
-        const isOnline = ev.isVirtual ?? false;
-        const venue: VenueInfo | undefined =
-          ev.city || ev.country
-            ? {
-                city: ev.city,
-                country: ev.country,
-              }
-            : undefined;
+      .map((ev) => this.normalizeEvent(ev, now));
+  }
 
-        const desc = stripHtml(ev.description ?? '');
+  private normalizeEvent(ev: PartifulEventRaw, scrapedAt: string): EventItem {
+    const loc = ev.locationInfo;
+    const isOnline = loc?.isVirtual ?? false;
+    const city = loc?.city;
+    const country = loc?.country;
+    const venue: VenueInfo | undefined =
+      city || country || loc?.fullAddress
+        ? { address: loc?.fullAddress, city, country }
+        : undefined;
 
-        return {
-          url: `https://partiful.com/e/${ev.id}`,
-          name: ev.name,
-          startAt: parseDate(ev.startAt),
-          endDate: ev.endAt ? parseDate(ev.endAt) : undefined,
-          description: desc,
-          location: ev.displayAddress ?? buildLocation(ev.city, ev.country),
-          venue,
-          isOnline,
-          format: detectFormat(ev.name, desc),
-          isFree: ev.isFree ?? false,
-          ticketPrice: ev.isFree ? 'Free' : undefined,
-          ticketUrl: ev.ticketUrl,
-          imageUrl: ev.imageUrl,
-          organizer: ev.organizer,
-          tags: ev.tags,
-          source: 'partiful' as const,
-          scrapedAt: now,
-        };
-      });
+    const desc = stripHtml(ev.description ?? '');
+
+    return {
+      url: `https://partiful.com/e/${ev.id}`,
+      name: ev.title,
+      startAt: parseDate(ev.startDate),
+      endDate: ev.endDate ? parseDate(ev.endDate) : undefined,
+      description: desc,
+      location: loc?.fullAddress ?? buildLocation(city, country),
+      venue,
+      isOnline,
+      format: detectFormat(ev.title, desc),
+      isFree: false, // Partiful doesn't expose pricing in SSR data
+      ticketPrice: undefined,
+      imageUrl: ev.image,
+      organizer: ev.hostName,
+      source: 'partiful' as const,
+      scrapedAt,
+    };
   }
 }

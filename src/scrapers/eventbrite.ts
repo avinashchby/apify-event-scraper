@@ -1,3 +1,4 @@
+import { chromium } from 'playwright';
 import * as cheerio from 'cheerio';
 import type { EventItem, VenueInfo } from '../types';
 import { parseDate, stripHtml, detectFormat, buildLocation } from '../utils/normalize';
@@ -40,13 +41,24 @@ export class EventbriteScraper extends BaseScraper {
 
   async scrape(): Promise<EventItem[]> {
     const url = this.buildUrl();
-    const res = await this.withRetry(() =>
-      this.fetch(url, { headers: HEADERS })
-    );
-    if (res.status === 429) throw new Error(`Eventbrite rate limited`);
-    if (!res.ok) throw new Error(`Eventbrite HTTP ${res.status}`);
 
-    const eventUrls = this.extractEventUrls(await res.text());
+    // Eventbrite blocks raw fetch — use Playwright to load the search page
+    const browser = await chromium.launch({ headless: true });
+    let searchHtml: string;
+    try {
+      const context = await browser.newContext({
+        userAgent:
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      });
+      const page = await context.newPage();
+      await this.randomDelay();
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      searchHtml = await page.content();
+    } finally {
+      await browser.close();
+    }
+
+    const eventUrls = this.extractEventUrls(searchHtml);
     const limited = eventUrls.slice(0, this.maxResults);
     const results = await Promise.all(limited.map((u) => this.fetchEventPage(u)));
     return results.filter((e): e is EventItem => e !== null);
@@ -100,7 +112,7 @@ export class EventbriteScraper extends BaseScraper {
   }
 
   /** Parse Event JSON-LD from an individual event page. */
-  private parseEventPage(html: string): EventItem | null {
+  parseEventPage(html: string): EventItem | null {
     const $ = cheerio.load(html);
     const now = new Date().toISOString();
     let result: EventItem | null = null;

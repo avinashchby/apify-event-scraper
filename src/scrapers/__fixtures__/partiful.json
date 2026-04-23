@@ -1,21 +1,27 @@
 {
-  "events": [
-    {
-      "id": "evt-001",
-      "name": "NYC Founders Happy Hour",
-      "startAt": "2026-06-20T18:00:00Z",
-      "endAt": "2026-06-20T21:00:00Z",
-      "description": "Casual networking for NYC startup founders.",
-      "city": "New York",
-      "country": "US",
-      "displayAddress": "TBD, New York, NY",
-      "isVirtual": false,
-      "isFree": true,
-      "ticketUrl": "https://partiful.com/e/evt-001/rsvp",
-      "imageUrl": "https://cdn.partiful.com/images/evt-001.jpg",
-      "organizer": "Founders Network",
-      "tags": ["networking", "startups"],
-      "isPublic": true
+  "props": {
+    "pageProps": {
+      "trendingSections": {
+        "NYC": [
+          {
+            "id": "evt-001",
+            "title": "NYC Founders Happy Hour",
+            "startDate": "2026-06-20T18:00:00Z",
+            "endDate": "2026-06-20T21:00:00Z",
+            "description": "Casual networking for NYC startup founders.",
+            "locationInfo": {
+              "city": "New York",
+              "country": "US",
+              "fullAddress": "TBD, New York, NY",
+              "isVirtual": false
+            },
+            "image": "https://cdn.partiful.com/images/evt-001.jpg",
+            "hostName": "Founders Network",
+            "isPublic": true,
+            "status": "ACTIVE"
+          }
+        ]
+      }
     }
-  ]
+  }
 }

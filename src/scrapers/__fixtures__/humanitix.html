@@ -1,16 +1,34 @@
 <!DOCTYPE html>
-<html><head><title>Humanitix Events</title></head>
-<body>
-  <div class="event-listing-card">
-    <a class="event-card__link" href="/au/tickets/startup-summit-sydney-2026">
-      <h2 class="event-card__title">Startup Summit Sydney 2026</h2>
-    </a>
-    <div class="event-card__date">2026-08-05T09:00:00+10:00</div>
-    <div class="event-card__location">Sydney, AU</div>
-    <div class="event-card__description">The biggest startup event in Australia this year.</div>
-    <div class="event-card__price">From $49</div>
-    <img class="event-card__image" src="https://cdn.humanitix.com/startup-summit.jpg" alt="Startup Summit" />
-    <div class="event-card__organiser">TechSydney</div>
-  </div>
-</body>
-</html>
+<html><head><title>Humanitix Events</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "item": {
+        "@type": "Event",
+        "name": "Startup Summit Sydney 2026",
+        "url": "https://humanitix.com/au/tickets/startup-summit-sydney-2026",
+        "startDate": "2026-08-05T09:00:00+10:00",
+        "endDate": "2026-08-05T17:00:00+10:00",
+        "description": "The biggest startup event in Australia this year.",
+        "location": {
+          "@type": "Place",
+          "name": "ICC Sydney",
+          "address": {
+            "addressLocality": "Sydney",
+            "addressCountry": "AU",
+            "streetAddress": "14 Darling Drive"
+          }
+        },
+        "organizer": { "@type": "Organization", "name": "TechSydney" },
+        "offers": { "@type": "Offer", "price": 49, "priceCurrency": "AUD" },
+        "image": "https://cdn.humanitix.com/startup-summit.jpg"
+      }
+    }
+  ]
+}
+</script>
+</head><body></body></html>

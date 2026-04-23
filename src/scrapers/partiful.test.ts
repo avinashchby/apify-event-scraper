@@ -13,18 +13,15 @@ const mockInput = {
   maxResultsPerSource: 50,
 };
 
-describe('PartifulScraper.normalizeResponse', () => {
-  it('normalizes fixture to EventItem[]', () => {
+describe('PartifulScraper.extractFromNextData', () => {
+  it('normalizes __NEXT_DATA__ fixture to EventItem[]', () => {
     const scraper = new PartifulScraper({ input: mockInput });
-    const events = scraper.normalizeResponse(fixture);
+    const events = scraper.extractFromNextData(fixture);
 
     expect(events).toHaveLength(1);
     expect(events[0].name).toBe('NYC Founders Happy Hour');
-    expect(events[0].isFree).toBe(true);
     expect(events[0].isOnline).toBe(false);
-    expect(events[0].ticketUrl).toBe('https://partiful.com/e/evt-001/rsvp');
-    expect(events[0].tags).toContain('networking');
-    expect(events[0].tags).toContain('startups');
+    expect(events[0].organizer).toBe('Founders Network');
     expect(events[0].source).toBe('partiful');
     expect(events[0].scrapedAt).toBeTruthy();
     expect(events[0].url).toBe('https://partiful.com/e/evt-001');
@@ -33,35 +30,46 @@ describe('PartifulScraper.normalizeResponse', () => {
 
   it('virtual event → isOnline true', () => {
     const virtualFixture = {
-      events: [
-        {
-          id: 'virtual-001',
-          isVirtual: true,
-          isPublic: true,
-          name: 'Virtual',
-          startAt: '2026-07-01T10:00:00Z',
-          isFree: true,
+      props: {
+        pageProps: {
+          trendingSections: {
+            Online: [
+              {
+                id: 'virtual-001',
+                title: 'Virtual Webinar',
+                startDate: '2026-07-01T10:00:00Z',
+                isPublic: true,
+                locationInfo: { isVirtual: true },
+              },
+            ],
+          },
         },
-      ],
+      },
     };
     const scraper = new PartifulScraper({ input: mockInput });
-    const events = scraper.normalizeResponse(virtualFixture);
+    const events = scraper.extractFromNextData(virtualFixture);
     expect(events[0].isOnline).toBe(true);
   });
 
   it('private event filtered out', () => {
     const privateFixture = {
-      events: [
-        {
-          id: 'private-001',
-          isPublic: false,
-          name: 'Private',
-          startAt: '2026-07-01T10:00:00Z',
+      props: {
+        pageProps: {
+          trendingSections: {
+            NYC: [
+              {
+                id: 'private-001',
+                title: 'Private Party',
+                startDate: '2026-07-01T10:00:00Z',
+                isPublic: false,
+              },
+            ],
+          },
         },
-      ],
+      },
     };
     const scraper = new PartifulScraper({ input: mockInput });
-    const events = scraper.normalizeResponse(privateFixture);
+    const events = scraper.extractFromNextData(privateFixture);
     expect(events).toHaveLength(0);
   });
 });

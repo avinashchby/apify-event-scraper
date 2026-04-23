@@ -57,22 +57,45 @@ export class LumaScraper extends BaseScraper {
       if (this.input.query) params.set('query', this.input.query);
       if (this.input.location?.city) params.set('location', this.input.location.city);
 
-      await this.randomDelay();
-      const [apiResponse] = await Promise.all([
-        page.waitForResponse(
-          r => r.url().includes('/api/discover/search'),
-          { timeout: 15000 }
-        ).catch(() => null),
-        page.goto(`https://lu.ma/discover?${params.toString()}`, { waitUntil: 'load', timeout: 30000 }),
-      ]);
-
       let data: LumaResponse | null = null;
-      if (apiResponse) {
-        try {
-          data = await apiResponse.json() as LumaResponse;
-        } catch {
-          data = null;
+
+      // Intercept any lu.ma API response that looks like a discover/search result
+      await page.route('**', async (route) => {
+        const req = route.request();
+        const url = req.url();
+        if (url.includes('lu.ma') && url.includes('/api/') && req.method() === 'GET') {
+          const response = await route.fetch();
+          try {
+            const json = await response.json() as LumaResponse;
+            if (json && Array.isArray(json.entries) && json.entries.length > 0 && data === null) {
+              data = json;
+            }
+          } catch {
+            // not JSON or not the endpoint we want
+          }
+          await route.fulfill({ response });
+        } else {
+          await route.continue();
         }
+      });
+
+      await this.randomDelay();
+      await page.goto(`https://lu.ma/discover?${params.toString()}`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000,
+      });
+
+      // Give the page time to fire API calls after initial render
+      await page.waitForTimeout(5000);
+
+      // Fallback: try __NEXT_DATA__ if no API response was captured
+      if (!data) {
+        const nextData = await page.evaluate((): unknown => {
+          const el = document.getElementById('__NEXT_DATA__');
+          if (!el?.textContent) return null;
+          try { return JSON.parse(el.textContent); } catch { return null; }
+        });
+        data = this.extractFromNextData(nextData);
       }
 
       return data ? this.normalizeResponse(data) : [];
@@ -81,6 +104,23 @@ export class LumaScraper extends BaseScraper {
         await browser.close();
       }
     }
+  }
+
+  private extractFromNextData(raw: unknown): LumaResponse | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const obj = raw as Record<string, unknown>;
+    // Walk props.pageProps for any entries array
+    const pageProps = (obj['props'] as Record<string, unknown>)?.['pageProps'] as Record<string, unknown> | undefined;
+    if (!pageProps) return null;
+    if (Array.isArray(pageProps['entries'])) {
+      return { entries: pageProps['entries'] as { event: LumaEvent }[] };
+    }
+    // Some lu.ma pages embed initialData
+    const initialData = pageProps['initialData'] as Record<string, unknown> | undefined;
+    if (initialData && Array.isArray(initialData['entries'])) {
+      return { entries: initialData['entries'] as { event: LumaEvent }[] };
+    }
+    return null;
   }
 
   normalizeResponse(data: LumaResponse): EventItem[] {
