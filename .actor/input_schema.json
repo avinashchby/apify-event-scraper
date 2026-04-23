@@ -8,10 +8,12 @@
       "type": "array",
       "description": "Select which event platforms to scrape. Leave all checked to scrape all 6.",
       "editor": "select",
-      "items": { "type": "string" },
-      "prefill": ["eventbrite", "meetup", "luma", "partiful", "hopin", "humanitix"],
-      "enum": ["eventbrite", "meetup", "luma", "partiful", "hopin", "humanitix"],
-      "enumTitles": ["Eventbrite", "Meetup", "Lu.ma", "Partiful", "Hopin", "Humanitix"]
+      "items": {
+        "type": "string",
+        "enum": ["eventbrite", "meetup", "luma", "partiful", "hopin", "humanitix"],
+        "enumTitles": ["Eventbrite", "Meetup", "Lu.ma", "Partiful", "Hopin", "Humanitix"]
+      },
+      "prefill": ["eventbrite", "meetup", "luma", "partiful", "hopin", "humanitix"]
     },
     "query": {
       "title": "Keyword search",
@@ -44,9 +46,11 @@
       "type": "array",
       "description": "Only include events of these types. Leave empty for all types.",
       "editor": "select",
-      "items": { "type": "string" },
-      "enum": ["conference", "meetup", "workshop", "hackathon", "webinar", "summit", "other"],
-      "enumTitles": ["Conference", "Meetup", "Workshop", "Hackathon", "Webinar", "Summit", "Other"]
+      "items": {
+        "type": "string",
+        "enum": ["conference", "meetup", "workshop", "hackathon", "webinar", "summit", "other"],
+        "enumTitles": ["Conference", "Meetup", "Workshop", "Hackathon", "Webinar", "Summit", "Other"]
+      }
     },
     "industries": {
       "title": "Industries",
