@@ -1,9 +1,9 @@
 FROM apify/actor-node-playwright-chrome:20
 
 COPY package*.json ./
-RUN npm --quiet set progress=false && npm install --only=prod --no-optional
+RUN npm --quiet set progress=false && npm install --no-optional
 
 COPY . ./
-RUN npm run build
+RUN npm run build && npm prune --production
 
 CMD npm start
