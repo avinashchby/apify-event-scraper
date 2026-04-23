@@ -52,13 +52,15 @@ export class EventbriteScraper extends BaseScraper {
       });
       const page = await context.newPage();
       await this.randomDelay();
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
       searchHtml = await page.content();
+      console.log(`[eventbrite] search page title: "${await page.title()}", html size: ${searchHtml.length}`);
     } finally {
       await browser.close();
     }
 
     const eventUrls = this.extractEventUrls(searchHtml);
+    console.log(`[eventbrite] extracted ${eventUrls.length} event URLs from search page`);
     const limited = eventUrls.slice(0, this.maxResults);
     const results = await Promise.all(limited.map((u) => this.fetchEventPage(u)));
     return results.filter((e): e is EventItem => e !== null);

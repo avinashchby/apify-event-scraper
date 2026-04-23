@@ -59,42 +59,39 @@ export class LumaScraper extends BaseScraper {
 
       let data: LumaResponse | null = null;
 
-      // Intercept any lu.ma API response that looks like a discover/search result
-      await page.route('**', async (route) => {
-        const req = route.request();
-        const url = req.url();
-        if (url.includes('lu.ma') && url.includes('/api/') && req.method() === 'GET') {
-          const response = await route.fetch();
-          try {
-            const json = await response.json() as LumaResponse;
-            if (json && Array.isArray(json.entries) && json.entries.length > 0 && data === null) {
-              data = json;
-            }
-          } catch {
-            // not JSON or not the endpoint we want
+      // Non-blocking response listener — no overhead on every request
+      page.on('response', async (response) => {
+        const url = response.url();
+        if (!url.includes('/api/') || response.request().method() !== 'GET') return;
+        try {
+          const json = await response.json() as LumaResponse;
+          if (json && Array.isArray(json.entries) && json.entries.length > 0 && data === null) {
+            console.log(`[luma] captured API response from: ${url}`);
+            data = json;
           }
-          await route.fulfill({ response });
-        } else {
-          await route.continue();
+        } catch {
+          // not JSON or wrong shape
         }
       });
 
       await this.randomDelay();
-      await page.goto(`https://lu.ma/discover?${params.toString()}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
+      const targetUrl = `https://lu.ma/discover?${params.toString()}`;
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      console.log(`[luma] page title: "${await page.title()}"`);
 
-      // Give the page time to fire API calls after initial render
-      await page.waitForTimeout(5000);
+      // Wait for any XHR/fetch API calls to fire
+      await page.waitForTimeout(6000);
 
-      // Fallback: try __NEXT_DATA__ if no API response was captured
+      // Fallback: try __NEXT_DATA__
       if (!data) {
         const nextData = await page.evaluate((): unknown => {
           const el = document.getElementById('__NEXT_DATA__');
           if (!el?.textContent) return null;
           try { return JSON.parse(el.textContent); } catch { return null; }
         });
+        const pageTitle = await page.title();
+        const htmlLen = (await page.content()).length;
+        console.log(`[luma] __NEXT_DATA__ fallback. page="${pageTitle}" htmlLen=${htmlLen} nextDataKeys=${JSON.stringify(Object.keys((nextData as Record<string,unknown>) ?? {}))}`);
         data = this.extractFromNextData(nextData);
       }
 

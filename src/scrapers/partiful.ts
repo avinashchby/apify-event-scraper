@@ -53,6 +53,12 @@ export class PartifulScraper extends BaseScraper {
         waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
+      // Give React time to hydrate and render trending sections
+      await page.waitForTimeout(3000);
+
+      const pageTitle = await page.title();
+      const htmlLen = (await page.content()).length;
+      console.log(`[partiful] title="${pageTitle}" htmlLen=${htmlLen}`);
 
       // Partiful is a Next.js app — event data is SSR'd into __NEXT_DATA__
       const nextData = await page.evaluate((): unknown => {
@@ -64,6 +70,9 @@ export class PartifulScraper extends BaseScraper {
           return null;
         }
       });
+
+      const ndKeys = nextData ? Object.keys((nextData as Record<string,unknown>)?.['props'] ? (nextData as Record<string,unknown>)['props'] as object : {}) : [];
+      console.log(`[partiful] __NEXT_DATA__ found=${!!nextData} propsKeys=${JSON.stringify(ndKeys)}`);
 
       if (!nextData) return [];
       return this.extractFromNextData(nextData as PartifulNextData);
