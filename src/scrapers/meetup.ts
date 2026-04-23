@@ -153,12 +153,11 @@ export class MeetupScraper extends BaseScraper {
       });
       const page = await context.newPage();
       await this.randomDelay();
-      // Warm up: visit homepage first so Cloudflare grants a session token
-      await page.goto('https://www.meetup.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
       await page.goto(url, { waitUntil, timeout: 45000 });
       if (extraWaitMs > 0) await page.waitForTimeout(extraWaitMs);
-      console.log(`[meetup] page title: "${await page.title()}"`);
-      return page.content();
+      const [title, html] = await Promise.all([page.title(), page.content()]);
+      console.log(`[meetup] page title: "${title}"`);
+      return html;
     } finally {
       await browser.close();
     }
