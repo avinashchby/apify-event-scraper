@@ -76,7 +76,7 @@ interface MeetupResponse {
   };
 }
 
-/** Scrapes Meetup events. Intercepts the site's own GraphQL calls via Playwright; falls back to JSON-LD parsing. */
+/** Scrapes Meetup events via Playwright. Renders the search page, parses JSON-LD; falls back to cheerio link extraction. */
 export class MeetupScraper extends BaseScraper {
   constructor(options: ScraperOptions) {
     super(options);
@@ -114,59 +114,37 @@ export class MeetupScraper extends BaseScraper {
     return this.normalizeEdges(json.data?.keywordSearch?.edges ?? []);
   }
 
-  /** Playwright path — navigates the search page and captures the site's own GraphQL calls. */
+  /** Playwright path — renders the search page and extracts events from the resulting HTML. */
   private async scrapeViaPlaywright(): Promise<EventItem[]> {
     const url = this.buildSearchUrl();
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const context = await browser.newContext({
-        userAgent:
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      });
-      const page = await context.newPage();
+    let html: string;
 
-      let capturedEdges: { node?: MeetupEvent }[] | null = null;
-      let interceptDone = false;
-
-      // Meetup uses /gql2 (same-origin) as their GraphQL endpoint
-      page.on('response', async (response) => {
-        if (interceptDone) return;
-        const responseUrl = response.url();
-        // Only intercept Meetup's GraphQL endpoints
-        if (!responseUrl.includes('/gql2') && !responseUrl.includes('api.meetup.com')) return;
-        try {
-          const json = (await response.json()) as MeetupResponse;
-          const edges = json?.data?.keywordSearch?.edges;
-          if (Array.isArray(edges) && edges.length > 0 && !capturedEdges) {
-            console.log(`[meetup] captured /gql2 keywordSearch, ${edges.length} events`);
-            capturedEdges = edges;
-          }
-        } catch {
-          // ignore non-JSON or wrong shape
-        }
-      });
-
-      await this.randomDelay();
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
-      interceptDone = true; // stop async response handlers from running during DOM evaluation
-      console.log(`[meetup] page title: "${await page.title()}"`);
-
-      if (capturedEdges !== null) {
-        return this.normalizeEdges(capturedEdges);
+    // Isolate browser lifetime: close before doing any CPU-bound HTML parsing
+    {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const context = await browser.newContext({
+          userAgent:
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        });
+        const page = await context.newPage();
+        await this.randomDelay();
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+        console.log(`[meetup] page title: "${await page.title()}"`);
+        html = await page.content();
+        console.log(`[meetup] html length: ${html.length}`);
+      } finally {
+        await browser.close();
       }
-
-      // Fallback 1: parse JSON-LD from the fully-rendered HTML
-      const html = await page.content();
-      const jsonLdEvents = this.parseEvents(html);
-      console.log(`[meetup] JSON-LD parsing found ${jsonLdEvents.length} events`);
-      if (jsonLdEvents.length > 0) return jsonLdEvents;
-
-      // Fallback 2: DOM scraping — extract event cards from React-rendered DOM
-      console.log('[meetup] falling back to DOM event card extraction');
-      return this.extractFromDom(page);
-    } finally {
-      await browser.close();
     }
+
+    // Try JSON-LD first (populated on some Meetup pages)
+    const jsonLdEvents = this.parseEvents(html);
+    console.log(`[meetup] JSON-LD parsing found ${jsonLdEvents.length} events`);
+    if (jsonLdEvents.length > 0) return jsonLdEvents;
+
+    // Fallback: extract event card links from React-rendered HTML via cheerio
+    return this.parseEventLinks(html);
   }
 
   private buildSearchUrl(): string {
@@ -179,89 +157,6 @@ export class MeetupScraper extends BaseScraper {
     params.set('dateRange', 'upcoming');
     params.set('source', 'EVENTS');
     return `https://www.meetup.com/find/?${params.toString()}`;
-  }
-
-  /** Extract event cards from React-rendered DOM via page.evaluate(). */
-  private async extractFromDom(page: import('playwright').Page): Promise<EventItem[]> {
-    const now = new Date().toISOString();
-    try {
-    // Log available selectors and link samples to aid debugging
-    const info = await page.evaluate(() => {
-      const selectorCounts: Record<string, number> = {};
-      for (const sel of [
-        '[data-testid*="event"]', '[data-testid*="Event"]',
-        '[class*="eventCard"]', '[class*="EventCard"]',
-        'article', '[data-element*="event"]',
-      ]) {
-        selectorCounts[sel] = document.querySelectorAll(sel).length;
-      }
-      const sampleLinks = Array.from(document.querySelectorAll('a[href*="/events/"]'))
-        .slice(0, 5)
-        .map((el) => ({ href: (el as HTMLAnchorElement).href, text: (el as HTMLElement).innerText?.trim()?.slice(0, 80) }));
-      return { selectorCounts, sampleLinks };
-    });
-    console.log('[meetup] DOM info:', JSON.stringify(info));
-
-    const raw = await page.evaluate((): Array<{ url: string; title: string; startAt: string; location: string }> => {
-      // Try known card selectors first
-      const cardSelectors = [
-        '[data-testid*="eventCard"]', '[data-testid*="event-card"]',
-        '[class*="eventCard"]', '[class*="EventCard"]',
-      ];
-      let cards: Element[] = [];
-      for (const sel of cardSelectors) {
-        const found = Array.from(document.querySelectorAll(sel));
-        if (found.length > 0) { cards = found; break; }
-      }
-
-      if (cards.length > 0) {
-        return cards.slice(0, 50).map((card) => {
-          const link = card.querySelector('a[href*="/events/"]') as HTMLAnchorElement | null;
-          const time = card.querySelector('time');
-          const addr = card.querySelector('[class*="location"], address') as HTMLElement | null;
-          const heading = card.querySelector('h2, h3, [class*="title"], [class*="Title"]') as HTMLElement | null;
-          return {
-            url: link?.href ?? '',
-            title: heading?.innerText?.trim() ?? link?.innerText?.trim() ?? '',
-            startAt: time?.getAttribute('datetime') ?? '',
-            location: addr?.innerText?.trim() ?? '',
-          };
-        }).filter((e) => e.url.includes('/events/') && e.title.length > 2);
-      }
-
-      // Generic: collect distinct event-page links with their visible text
-      const seen = new Set<string>();
-      return Array.from(document.querySelectorAll('a[href*="/events/"]'))
-        .map((el) => {
-          const anchor = el as HTMLAnchorElement;
-          const text = (el as HTMLElement).innerText?.trim() ?? el.textContent?.trim() ?? '';
-          return { url: anchor.href, title: text.slice(0, 120), startAt: '', location: '' };
-        })
-        .filter((e) => {
-          if (!e.url || e.title.length < 4 || seen.has(e.url)) return false;
-          seen.add(e.url);
-          return true;
-        })
-        .slice(0, 50);
-    });
-
-    console.log(`[meetup] DOM extraction found ${raw.length} candidate events`);
-    return raw.map((r) => ({
-      name: r.title,
-      url: r.url,
-      startAt: r.startAt ? parseDate(r.startAt) : now,
-      description: '',
-      location: r.location || '',
-      isOnline: r.location?.toLowerCase().includes('online') ?? false,
-      format: detectFormat(r.title, ''),
-      isFree: true,
-      source: 'meetup' as const,
-      scrapedAt: now,
-    }));
-    } catch (err) {
-      console.error('[meetup] DOM extraction failed:', err);
-      return [];
-    }
   }
 
   /** Parse Event JSON-LD blocks from rendered HTML (also used directly in unit tests). */
@@ -286,6 +181,51 @@ export class MeetupScraper extends BaseScraper {
       }
     });
 
+    return items;
+  }
+
+  /** Extract event links from rendered HTML using cheerio — fallback when no JSON-LD is present. */
+  private parseEventLinks(html: string): EventItem[] {
+    const $ = cheerio.load(html);
+    const now = new Date().toISOString();
+    const seen = new Set<string>();
+    const items: EventItem[] = [];
+
+    // Meetup's rendered event cards contain links matching /group-slug/events/DIGITS/
+    $('a[href*="/events/"]').each((_, el) => {
+      if (items.length >= this.maxResults) return false;
+      const rawHref = $(el).attr('href') ?? '';
+      // Only capture deep event links (group + events + id), not nav/filter links
+      if (!/\/[\w-]+\/events\/\d+\/?/.test(rawHref)) return;
+      const eventUrl = rawHref.startsWith('http') ? rawHref : `https://www.meetup.com${rawHref}`;
+      if (seen.has(eventUrl)) return;
+      seen.add(eventUrl);
+
+      // Title: prefer nearest heading, fall back to link text
+      const card = $(el).closest('li, article, [class*="card"], [class*="Card"], [class*="event"]');
+      const heading = card.find('h2, h3, [class*="title"], [class*="Title"]').first();
+      const title = (heading.text().trim() || $(el).text().trim()).slice(0, 120);
+      if (!title || title.length < 3) return;
+
+      // Date: look for <time datetime="..."> in the card
+      const timeEl = card.find('time[datetime]').first();
+      const startAt = timeEl.attr('datetime') ? parseDate(timeEl.attr('datetime')!) : now;
+
+      items.push({
+        name: title,
+        url: eventUrl,
+        startAt,
+        description: '',
+        location: '',
+        isOnline: false,
+        format: detectFormat(title, ''),
+        isFree: true,
+        source: 'meetup',
+        scrapedAt: now,
+      });
+    });
+
+    console.log(`[meetup] link extraction found ${items.length} events`);
     return items;
   }
 
