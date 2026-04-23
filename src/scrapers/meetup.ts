@@ -126,21 +126,19 @@ export class MeetupScraper extends BaseScraper {
       const page = await context.newPage();
 
       let capturedEdges: { node?: MeetupEvent }[] | null = null;
+      let interceptDone = false;
 
-      // Intercept ALL JSON responses from meetup.com (catches same-origin and api.meetup.com calls)
+      // Meetup uses /gql2 (same-origin) as their GraphQL endpoint
       page.on('response', async (response) => {
+        if (interceptDone) return;
         const responseUrl = response.url();
-        if (!responseUrl.includes('meetup.com')) return;
-        const ct = response.headers()['content-type'] ?? '';
-        if (!ct.includes('json')) return;
-        // Skip static assets
-        if (/\.(js|css|png|jpg|svg|woff|ico)(\?|$)/.test(responseUrl)) return;
-        console.log(`[meetup] JSON response: ${response.status()} ${responseUrl}`);
+        // Only intercept Meetup's GraphQL endpoints
+        if (!responseUrl.includes('/gql2') && !responseUrl.includes('api.meetup.com')) return;
         try {
           const json = (await response.json()) as MeetupResponse;
           const edges = json?.data?.keywordSearch?.edges;
           if (Array.isArray(edges) && edges.length > 0 && !capturedEdges) {
-            console.log(`[meetup] captured GraphQL response, ${edges.length} events`);
+            console.log(`[meetup] captured /gql2 keywordSearch, ${edges.length} events`);
             capturedEdges = edges;
           }
         } catch {
@@ -150,6 +148,7 @@ export class MeetupScraper extends BaseScraper {
 
       await this.randomDelay();
       await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
+      interceptDone = true; // stop async response handlers from running during DOM evaluation
       console.log(`[meetup] page title: "${await page.title()}"`);
 
       if (capturedEdges !== null) {
@@ -185,7 +184,7 @@ export class MeetupScraper extends BaseScraper {
   /** Extract event cards from React-rendered DOM via page.evaluate(). */
   private async extractFromDom(page: import('playwright').Page): Promise<EventItem[]> {
     const now = new Date().toISOString();
-
+    try {
     // Log available selectors and link samples to aid debugging
     const info = await page.evaluate(() => {
       const selectorCounts: Record<string, number> = {};
@@ -259,6 +258,10 @@ export class MeetupScraper extends BaseScraper {
       source: 'meetup' as const,
       scrapedAt: now,
     }));
+    } catch (err) {
+      console.error('[meetup] DOM extraction failed:', err);
+      return [];
+    }
   }
 
   /** Parse Event JSON-LD blocks from rendered HTML (also used directly in unit tests). */
