@@ -191,6 +191,14 @@ export class MeetupScraper extends BaseScraper {
     const seen = new Set<string>();
     const items: EventItem[] = [];
 
+    // Diagnostic: log first 10 hrefs containing "event" to understand what's in the HTML
+    const diagLinks = $('a[href]').map((_, el) => $(el).attr('href') ?? '').get()
+      .filter((h) => h.toLowerCase().includes('event'))
+      .slice(0, 10);
+    console.log('[meetup] event-related hrefs in HTML:', JSON.stringify(diagLinks));
+    const totalLinks = $('a[href]').length;
+    console.log(`[meetup] total <a href> elements: ${totalLinks}`);
+
     // Meetup's rendered event cards contain links matching /group-slug/events/DIGITS/
     $('a[href*="/events/"]').each((_, el) => {
       if (items.length >= this.maxResults) return false;
