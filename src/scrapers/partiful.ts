@@ -3,12 +3,18 @@ import type { EventItem, VenueInfo } from '../types';
 import { parseDate, stripHtml, detectFormat, buildLocation } from '../utils/normalize';
 import { BaseScraper, ScraperOptions } from './base';
 
+interface PartifulMapsInfo {
+  name?: string;
+  addressLines?: string[];
+  approximateLocation?: { lat?: number; lng?: number };
+  googleMapsUrl?: string;
+}
+
 interface PartifulLocationInfo {
-  city?: string;
-  state?: string;
-  country?: string;
-  fullAddress?: string;
-  isVirtual?: boolean;
+  type?: string; // 'structured', 'online', etc.
+  displayName?: string;
+  displayAddressLines?: string[];
+  mapsInfo?: PartifulMapsInfo;
 }
 
 interface PartifulEventRaw {
@@ -25,10 +31,24 @@ interface PartifulEventRaw {
   locationInfo?: PartifulLocationInfo;
 }
 
+interface PartifulSectionItem {
+  id: string;
+  type: string;
+  event?: PartifulEventRaw;
+}
+
+interface PartifulSection {
+  id: string;
+  title: string;
+  region?: string;
+  items: PartifulSectionItem[];
+}
+
 interface PartifulNextData {
   props?: {
     pageProps?: {
-      trendingSections?: Record<string, PartifulEventRaw[]> | PartifulEventRaw[];
+      // trendingSections values are section objects (not arrays of events)
+      trendingSections?: Record<string, PartifulSection>;
       events?: PartifulEventRaw[];
     };
   };
@@ -53,26 +73,18 @@ export class PartifulScraper extends BaseScraper {
         waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
-      // Give React time to hydrate and render trending sections
-      await page.waitForTimeout(3000);
 
-      const pageTitle = await page.title();
-      const htmlLen = (await page.content()).length;
-      console.log(`[partiful] title="${pageTitle}" htmlLen=${htmlLen}`);
-
-      // Partiful is a Next.js app — event data is SSR'd into __NEXT_DATA__
+      // Partiful is a Next.js SSG app — trending data is in __NEXT_DATA__
       const nextData = await page.evaluate((): unknown => {
         const el = document.getElementById('__NEXT_DATA__');
         if (!el || !el.textContent) return null;
-        try {
-          return JSON.parse(el.textContent);
-        } catch {
-          return null;
-        }
+        try { return JSON.parse(el.textContent); } catch { return null; }
       });
 
-      const ndKeys = nextData ? Object.keys((nextData as Record<string,unknown>)?.['props'] ? (nextData as Record<string,unknown>)['props'] as object : {}) : [];
-      console.log(`[partiful] __NEXT_DATA__ found=${!!nextData} propsKeys=${JSON.stringify(ndKeys)}`);
+      const sectionKeys = (nextData as PartifulNextData)?.props?.pageProps?.trendingSections
+        ? Object.keys((nextData as PartifulNextData).props!.pageProps!.trendingSections!)
+        : [];
+      console.log(`[partiful] __NEXT_DATA__ found=${!!nextData} sectionKeys=${JSON.stringify(sectionKeys)}`);
 
       if (!nextData) return [];
       return this.extractFromNextData(nextData as PartifulNextData);
@@ -87,18 +99,19 @@ export class PartifulScraper extends BaseScraper {
 
     const rawEvents: PartifulEventRaw[] = [];
 
-    // trendingSections is a dict keyed by city name, each value is an array of events
+    // trendingSections[city] = { items: [{ event: {...} }] }
     const sections = pageProps.trendingSections;
-    if (sections && !Array.isArray(sections)) {
-      for (const cityEvents of Object.values(sections)) {
-        if (Array.isArray(cityEvents)) rawEvents.push(...cityEvents);
+    if (sections && typeof sections === 'object') {
+      for (const section of Object.values(sections)) {
+        if (!section?.items) continue;
+        for (const item of section.items) {
+          if (item?.event?.id) rawEvents.push(item.event);
+        }
       }
-    } else if (Array.isArray(sections)) {
-      rawEvents.push(...sections);
     }
 
-    // some pages expose a flat events array
-    if (pageProps.events && Array.isArray(pageProps.events)) {
+    // fallback: flat events array
+    if (Array.isArray(pageProps.events)) {
       rawEvents.push(...pageProps.events);
     }
 
@@ -126,13 +139,11 @@ export class PartifulScraper extends BaseScraper {
 
   private normalizeEvent(ev: PartifulEventRaw, scrapedAt: string): EventItem {
     const loc = ev.locationInfo;
-    const isOnline = loc?.isVirtual ?? false;
-    const city = loc?.city;
-    const country = loc?.country;
-    const venue: VenueInfo | undefined =
-      city || country || loc?.fullAddress
-        ? { address: loc?.fullAddress, city, country }
-        : undefined;
+    const isOnline = loc?.type === 'online';
+    const address = loc?.displayAddressLines?.join(', ') || loc?.displayName;
+    const venue: VenueInfo | undefined = address
+      ? { name: loc?.displayName, address }
+      : undefined;
 
     const desc = stripHtml(ev.description ?? '');
 
@@ -142,11 +153,11 @@ export class PartifulScraper extends BaseScraper {
       startAt: parseDate(ev.startDate),
       endDate: ev.endDate ? parseDate(ev.endDate) : undefined,
       description: desc,
-      location: loc?.fullAddress ?? buildLocation(city, country),
+      location: address ?? buildLocation(undefined, undefined),
       venue,
       isOnline,
       format: detectFormat(ev.title, desc),
-      isFree: false, // Partiful doesn't expose pricing in SSR data
+      isFree: false,
       ticketPrice: undefined,
       imageUrl: ev.image,
       organizer: ev.hostName,

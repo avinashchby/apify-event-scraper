@@ -2,26 +2,35 @@
   "props": {
     "pageProps": {
       "trendingSections": {
-        "NYC": [
-          {
-            "id": "evt-001",
-            "title": "NYC Founders Happy Hour",
-            "startDate": "2026-06-20T18:00:00Z",
-            "endDate": "2026-06-20T21:00:00Z",
-            "description": "Casual networking for NYC startup founders.",
-            "locationInfo": {
-              "city": "New York",
-              "country": "US",
-              "fullAddress": "TBD, New York, NY",
-              "isVirtual": false
-            },
-            "image": "https://cdn.partiful.com/images/evt-001.jpg",
-            "hostName": "Founders Network",
-            "isPublic": true,
-            "status": "ACTIVE"
-          }
-        ]
+        "NYC": {
+          "id": "nyc-dynamic-trending-events",
+          "title": "Trending in NYC",
+          "region": "NYC",
+          "items": [
+            {
+              "id": "event-evt-001",
+              "type": "event",
+              "event": {
+                "id": "evt-001",
+                "title": "NYC Founders Happy Hour",
+                "startDate": "2026-06-20T18:00:00Z",
+                "endDate": "2026-06-20T21:00:00Z",
+                "description": "Casual networking for NYC startup founders.",
+                "locationInfo": {
+                  "type": "structured",
+                  "displayName": "TBD Venue",
+                  "displayAddressLines": ["TBD, New York, NY"]
+                },
+                "image": "https://cdn.partiful.com/images/evt-001.jpg",
+                "hostName": "Founders Network",
+                "isPublic": true,
+                "status": "ACTIVE"
+              }
+            }
+          ]
+        }
       }
-    }
+    },
+    "__N_SSG": true
   }
 }

@@ -59,11 +59,10 @@ export class EventbriteScraper extends BaseScraper {
       await browser.close();
     }
 
-    const eventUrls = this.extractEventUrls(searchHtml);
-    console.log(`[eventbrite] extracted ${eventUrls.length} event URLs from search page`);
-    const limited = eventUrls.slice(0, this.maxResults);
-    const results = await Promise.all(limited.map((u) => this.fetchEventPage(u)));
-    return results.filter((e): e is EventItem => e !== null);
+    // Parse full event data directly from the ItemList on the search page
+    const events = this.parseSearchPage(searchHtml);
+    console.log(`[eventbrite] parsed ${events.length} events from search page`);
+    return events;
   }
 
   /** Build the Eventbrite search URL — keyword goes in the URL path, not query string. */
@@ -83,6 +82,33 @@ export class EventbriteScraper extends BaseScraper {
     return `https://www.eventbrite.com/d/${place}/${keyword}/${qs ? '?' + qs : ''}`;
   }
 
+  /** Parse full event data from ItemList JSON-LD on the search results page.
+   *  Each itemListElement now embeds a full Event object under `.item`. */
+  private parseSearchPage(html: string): EventItem[] {
+    const $ = cheerio.load(html);
+    const now = new Date().toISOString();
+    const items: EventItem[] = [];
+
+    $('script[type="application/ld+json"]').each((_, el) => {
+      if (items.length >= this.maxResults) return false;
+      try {
+        const raw = JSON.parse($(el).html() ?? '{}') as Record<string, unknown>;
+        if (raw['@type'] !== 'ItemList') return;
+        for (const listItem of (raw.itemListElement as Array<{ item?: EventbriteJsonLd; url?: string }>) ?? []) {
+          if (items.length >= this.maxResults) break;
+          const ev = listItem.item ?? (listItem as unknown as EventbriteJsonLd);
+          if (!ev || ev['@type'] !== 'Event' || !ev.name || !ev.url || !ev.startDate) continue;
+          const item = this.normalizeEntry(ev, now);
+          if (item) items.push(item);
+        }
+      } catch {
+        // malformed JSON-LD — skip
+      }
+    });
+
+    return items;
+  }
+
   /** Extract event page URLs from the ItemList JSON-LD on the search results page. */
   private extractEventUrls(html: string): string[] {
     const $ = cheerio.load(html);
@@ -91,8 +117,9 @@ export class EventbriteScraper extends BaseScraper {
       try {
         const raw = JSON.parse($(el).html() ?? '{}') as Record<string, unknown>;
         if (raw['@type'] === 'ItemList') {
-          for (const item of (raw.itemListElement as Array<{ url?: string }>) ?? []) {
-            if (item.url) urls.push(item.url);
+          for (const listItem of (raw.itemListElement as Array<{ item?: { url?: string }; url?: string }>) ?? []) {
+            const url = listItem.item?.url ?? listItem.url;
+            if (url) urls.push(url);
           }
         }
       } catch {

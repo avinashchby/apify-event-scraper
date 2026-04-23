@@ -106,18 +106,37 @@ export class LumaScraper extends BaseScraper {
   private extractFromNextData(raw: unknown): LumaResponse | null {
     if (!raw || typeof raw !== 'object') return null;
     const obj = raw as Record<string, unknown>;
-    // Walk props.pageProps for any entries array
     const pageProps = (obj['props'] as Record<string, unknown>)?.['pageProps'] as Record<string, unknown> | undefined;
     if (!pageProps) return null;
-    if (Array.isArray(pageProps['entries'])) {
-      return { entries: pageProps['entries'] as { event: LumaEvent }[] };
-    }
-    // Some lu.ma pages embed initialData
+
     const initialData = pageProps['initialData'] as Record<string, unknown> | undefined;
-    if (initialData && Array.isArray(initialData['entries'])) {
-      return { entries: initialData['entries'] as { event: LumaEvent }[] };
-    }
-    return null;
+    if (!initialData) return null;
+
+    // lu.ma /discover page stores events in initialData.featured_place.events
+    const featuredPlace = initialData['featured_place'] as Record<string, unknown> | undefined;
+    const rawEntries = featuredPlace?.['events'];
+    if (!Array.isArray(rawEntries) || rawEntries.length === 0) return null;
+
+    // Each entry: { event: LumaEvent, hosts: LumaHost[], ticket_info: {...} }
+    const entries = (rawEntries as Record<string, unknown>[])
+      .map((entry) => {
+        const ev = entry['event'] as LumaEvent | undefined;
+        if (!ev?.name) return null;
+        return {
+          event: {
+            ...ev,
+            // hosts and ticket_info live at entry level, not inside event
+            hosts: (entry['hosts'] as LumaHost[] | undefined) ?? ev.hosts,
+            ticket_info: (entry['ticket_info'] as LumaEvent['ticket_info'] | undefined) ?? ev.ticket_info,
+            // short slug → full URL
+            url: ev.url?.startsWith('http') ? ev.url : `https://lu.ma/${ev.url}`,
+          } as LumaEvent,
+        };
+      })
+      .filter((e): e is { event: LumaEvent } => e !== null);
+
+    console.log(`[luma] extracted ${entries.length} events from __NEXT_DATA__ featured_place`);
+    return entries.length > 0 ? { entries } : null;
   }
 
   normalizeResponse(data: LumaResponse): EventItem[] {

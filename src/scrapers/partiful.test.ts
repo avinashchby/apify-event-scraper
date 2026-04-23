@@ -33,15 +33,23 @@ describe('PartifulScraper.extractFromNextData', () => {
       props: {
         pageProps: {
           trendingSections: {
-            Online: [
-              {
-                id: 'virtual-001',
-                title: 'Virtual Webinar',
-                startDate: '2026-07-01T10:00:00Z',
-                isPublic: true,
-                locationInfo: { isVirtual: true },
-              },
-            ],
+            Online: {
+              id: 'online-section',
+              title: 'Online Events',
+              items: [
+                {
+                  id: 'item-virtual-001',
+                  type: 'event',
+                  event: {
+                    id: 'virtual-001',
+                    title: 'Virtual Webinar',
+                    startDate: '2026-07-01T10:00:00Z',
+                    isPublic: true,
+                    locationInfo: { type: 'online' },
+                  },
+                },
+              ],
+            },
           },
         },
       },
@@ -56,14 +64,22 @@ describe('PartifulScraper.extractFromNextData', () => {
       props: {
         pageProps: {
           trendingSections: {
-            NYC: [
-              {
-                id: 'private-001',
-                title: 'Private Party',
-                startDate: '2026-07-01T10:00:00Z',
-                isPublic: false,
-              },
-            ],
+            NYC: {
+              id: 'nyc-section',
+              title: 'NYC Events',
+              items: [
+                {
+                  id: 'item-private-001',
+                  type: 'event',
+                  event: {
+                    id: 'private-001',
+                    title: 'Private Party',
+                    startDate: '2026-07-01T10:00:00Z',
+                    isPublic: false,
+                  },
+                },
+              ],
+            },
           },
         },
       },
