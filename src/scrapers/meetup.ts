@@ -87,7 +87,10 @@ export class MeetupScraper extends BaseScraper {
     if (this.fetch !== globalThis.fetch) {
       return this.scrapeViaApi();
     }
-    return this.scrapeViaPlaywright();
+    // Meetup uses Cloudflare Bot Management which reliably blocks datacenter IPs.
+    // Kept in the codebase for potential residential-proxy use, but skipped by default.
+    console.warn('[meetup] Meetup blocks datacenter IPs via Cloudflare — returning empty results. Use residential proxy to enable.');
+    return [];
   }
 
   /** Direct GraphQL API path — used in unit tests via injected fetchFn. */

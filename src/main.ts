@@ -9,7 +9,8 @@ import { HumanitixScraper } from './scrapers/humanitix';
 import { applyFilters } from './filters';
 import { deduplicate } from './deduplicator';
 
-const DEFAULT_SOURCES: SourceId[] = ['eventbrite', 'meetup', 'luma', 'partiful', 'hopin', 'humanitix'];
+// meetup omitted: Cloudflare Bot Management blocks datacenter IPs unconditionally
+const DEFAULT_SOURCES: SourceId[] = ['eventbrite', 'luma', 'partiful', 'hopin', 'humanitix'];
 
 interface RunStats {
   source: SourceId;
@@ -49,18 +50,25 @@ async function main(): Promise<void> {
     const allEvents: EventItem[] = [];
     const stats: RunStats[] = [];
 
-    // Run scrapers sequentially — Playwright-based scrapers each consume ~1GB RAM,
-    // running them concurrently exceeds Apify's 4GB memory limit.
-    for (const source of input.sources) {
-      try {
+    const results = await Promise.allSettled(
+      input.sources.map(async (source) => {
         const events = await scraperMap[source]();
+        return { source, events };
+      }),
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const source = input.sources[i];
+      if (result.status === 'fulfilled') {
+        const { events } = result.value;
         const filtered = applyFilters(events, input);
         stats.push({ source, fetched: events.length, filtered: filtered.length, errors: 0 });
         allEvents.push(...filtered);
         console.log(`[${source}] fetched=${events.length} filtered=${filtered.length}`);
-      } catch (err) {
+      } else {
         stats.push({ source, fetched: 0, filtered: 0, errors: 1 });
-        console.error(`[${source}] failed:`, err);
+        console.error(`[${source}] failed:`, result.reason);
       }
     }
 
