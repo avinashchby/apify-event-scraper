@@ -1,0 +1,102 @@
+{
+  "title": "Event Scraper Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "sources": {
+      "title": "Sources to scrape",
+      "type": "array",
+      "description": "Select which event platforms to scrape. Leave all checked to scrape all 6.",
+      "editor": "select",
+      "items": { "type": "string" },
+      "prefill": ["eventbrite", "meetup", "luma", "partiful", "hopin", "humanitix"],
+      "enum": ["eventbrite", "meetup", "luma", "partiful", "hopin", "humanitix"],
+      "enumTitles": ["Eventbrite", "Meetup", "Lu.ma", "Partiful", "Hopin", "Humanitix"]
+    },
+    "query": {
+      "title": "Keyword search",
+      "type": "string",
+      "description": "Search query passed to each source's search endpoint.",
+      "editor": "textfield",
+      "example": "AI startup"
+    },
+    "location": {
+      "title": "Location filter",
+      "type": "object",
+      "description": "Filter by city/country or by lat/lng/radiusKm. Use one approach, not both.",
+      "editor": "json",
+      "example": { "city": "San Francisco", "country": "US" }
+    },
+    "dateFrom": {
+      "title": "From date",
+      "type": "string",
+      "description": "Include only events starting on or after this date (YYYY-MM-DD).",
+      "editor": "datepicker"
+    },
+    "dateTo": {
+      "title": "To date",
+      "type": "string",
+      "description": "Include only events starting on or before this date (YYYY-MM-DD).",
+      "editor": "datepicker"
+    },
+    "eventTypes": {
+      "title": "Event types",
+      "type": "array",
+      "description": "Only include events of these types. Leave empty for all types.",
+      "editor": "select",
+      "items": { "type": "string" },
+      "enum": ["conference", "meetup", "workshop", "hackathon", "webinar", "summit", "other"],
+      "enumTitles": ["Conference", "Meetup", "Workshop", "Hackathon", "Webinar", "Summit", "Other"]
+    },
+    "industries": {
+      "title": "Industries",
+      "type": "array",
+      "description": "Filter by industry keywords matched against event description and tags.",
+      "editor": "stringList",
+      "example": ["AI & Machine Learning", "Fintech"]
+    },
+    "format": {
+      "title": "Event format",
+      "type": "string",
+      "description": "Filter by online, in-person, or return both.",
+      "editor": "select",
+      "enum": ["online", "in-person", "both"],
+      "enumTitles": ["Online only", "In-person only", "Both"],
+      "default": "both"
+    },
+    "priceType": {
+      "title": "Price type",
+      "type": "string",
+      "description": "Filter by free, paid, or return both.",
+      "editor": "select",
+      "enum": ["free", "paid", "both"],
+      "enumTitles": ["Free only", "Paid only", "Both"],
+      "default": "both"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string",
+      "description": "ISO 639-1 language code (e.g. en, es, fr). Leave empty for all languages.",
+      "editor": "textfield",
+      "example": "en"
+    },
+    "maxResults": {
+      "title": "Max total results",
+      "type": "integer",
+      "description": "Hard cap on total events returned across all sources.",
+      "editor": "number",
+      "default": 200,
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "maxResultsPerSource": {
+      "title": "Max results per source",
+      "type": "integer",
+      "description": "Cap per platform to prevent one source dominating results.",
+      "editor": "number",
+      "default": 50,
+      "minimum": 1,
+      "maximum": 200
+    }
+  }
+}

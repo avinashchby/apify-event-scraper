@@ -1,0 +1,33 @@
+{
+  "data": {
+    "keywordSearch": {
+      "edges": [
+        {
+          "node": {
+            "id": "meetup-123456",
+            "title": "SF AI Builders Monthly Meetup",
+            "dateTime": "2026-06-20T18:30:00",
+            "endTime": "2026-06-20T21:00:00",
+            "description": "<p>Monthly gathering of AI builders in SF. Share projects, demo, network.</p>",
+            "eventUrl": "https://www.meetup.com/sf-ai-builders/events/123456789/",
+            "isOnline": false,
+            "venue": {
+              "name": "GitHub HQ",
+              "city": "San Francisco",
+              "state": "CA",
+              "country": "us",
+              "lat": 37.7749,
+              "lon": -122.4194
+            },
+            "feeSettings": null,
+            "group": { "name": "SF AI Builders" },
+            "featuredEventPhoto": {
+              "highResUrl": "https://secure.meetupstatic.com/photos/event/123.jpg"
+            }
+          }
+        }
+      ],
+      "pageInfo": { "endCursor": "abc123", "hasNextPage": false }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "entries": [
+    {
+      "event": {
+        "api_id": "evt-luma-abc123",
+        "name": "Founders & Investors Dinner SF",
+        "url": "https://lu.ma/founders-dinner-sf-jun26",
+        "start_at": "2026-06-18T19:00:00.000Z",
+        "end_at": "2026-06-18T22:00:00.000Z",
+        "description": "An intimate evening for founders and investors to connect over dinner and meaningful conversations.",
+        "cover_url": "https://images.lumacdn.com/event-covers/founders-dinner.png",
+        "location_type": "offline",
+        "geo_address_info": {
+          "city": "San Francisco",
+          "country": "US",
+          "full_address": "123 Main St, San Francisco, CA 94105",
+          "latitude": 37.7749,
+          "longitude": -122.4194
+        },
+        "ticket_info": {
+          "is_free": false,
+          "price": 4500,
+          "currency": "USD"
+        },
+        "hosts": [
+          { "name": "Jane Doe", "title": "Partner", "affiliation": "Sequoia Capital" }
+        ]
+      }
+    }
+  ]
+}

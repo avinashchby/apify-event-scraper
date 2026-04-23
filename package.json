@@ -1,0 +1,22 @@
+{
+  "name": "apify-event-scraper",
+  "version": "1.0.0",
+  "description": "Scrape events from Eventbrite, Meetup, Lu.ma, Partiful, Hopin, and Humanitix with 8 filter dimensions",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "node dist/main.js",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "apify": "^3.2.0",
+    "cheerio": "^1.0.0",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

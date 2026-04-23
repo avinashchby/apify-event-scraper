@@ -1,0 +1,38 @@
+{
+  "actorSpecification": 1,
+  "name": "event-scraper",
+  "title": "Event Scraper — Eventbrite, Meetup, Lu.ma & More",
+  "description": "Scrape events from 6 major platforms (Eventbrite, Meetup, Lu.ma, Partiful, Hopin, Humanitix) with 8 filter dimensions: keywords, location/radius, date range, event type, industry, format, price, and language.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "categories": ["SCRAPING", "MARKETING"],
+  "defaultRunOptions": {
+    "build": "latest",
+    "timeoutSecs": 3600,
+    "memoryMbytes": 4096
+  },
+  "storages": {
+    "dataset": {
+      "actorSpecification": 1,
+      "title": "Event Scraper Results",
+      "views": {
+        "overview": {
+          "title": "Events",
+          "transformation": { "fields": ["name", "url", "startAt", "location", "format", "isFree", "source"] },
+          "display": {
+            "component": "table",
+            "properties": {
+              "name": { "label": "Event Name", "format": "text" },
+              "url": { "label": "URL", "format": "link" },
+              "startAt": { "label": "Start Date", "format": "datetime" },
+              "location": { "label": "Location", "format": "text" },
+              "format": { "label": "Type", "format": "text" },
+              "isFree": { "label": "Free?", "format": "boolean" },
+              "source": { "label": "Source", "format": "text" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
