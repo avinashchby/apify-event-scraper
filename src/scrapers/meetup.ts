@@ -148,15 +148,18 @@ export class MeetupScraper extends BaseScraper {
   }
 
   private buildSearchUrl(): string {
-    const params = new URLSearchParams();
-    if (this.input.query) params.set('keywords', this.input.query);
+    // Try topic-based URL for queries that map to Meetup topics (less bot-guarded than /find/)
+    const query = (this.input.query ?? '').toLowerCase().replace(/\s+/g, '-');
     const loc = this.input.location;
-    if (loc?.city) {
-      params.set('location', loc.country ? `${loc.city}, ${loc.country}` : loc.city);
+    if (query) {
+      // /find/events/ with query string (more lenient than /find/ SPA)
+      const params = new URLSearchParams({ keywords: this.input.query ?? '' });
+      if (loc?.city) params.set('location', loc.country ? `${loc.city}, ${loc.country}` : loc.city);
+      params.set('dateRange', 'upcoming');
+      return `https://www.meetup.com/find/events/?${params.toString()}`;
     }
-    params.set('dateRange', 'upcoming');
-    params.set('source', 'EVENTS');
-    return `https://www.meetup.com/find/?${params.toString()}`;
+    const cityPath = loc?.city ? loc.city.toLowerCase().replace(/\s+/g, '-') : 'online';
+    return `https://www.meetup.com/find/events/?location=${cityPath}&dateRange=upcoming`;
   }
 
   /** Parse Event JSON-LD blocks from rendered HTML (also used directly in unit tests). */
@@ -191,13 +194,10 @@ export class MeetupScraper extends BaseScraper {
     const seen = new Set<string>();
     const items: EventItem[] = [];
 
-    // Diagnostic: log first 10 hrefs containing "event" to understand what's in the HTML
-    const diagLinks = $('a[href]').map((_, el) => $(el).attr('href') ?? '').get()
-      .filter((h) => h.toLowerCase().includes('event'))
-      .slice(0, 10);
-    console.log('[meetup] event-related hrefs in HTML:', JSON.stringify(diagLinks));
+    // Diagnostic: log all hrefs to understand what's in the HTML
+    const allHrefs = $('a[href]').map((_, el) => $(el).attr('href') ?? '').get().slice(0, 20);
     const totalLinks = $('a[href]').length;
-    console.log(`[meetup] total <a href> elements: ${totalLinks}`);
+    console.log(`[meetup] total <a href> elements: ${totalLinks}, sample:`, JSON.stringify(allHrefs));
 
     // Meetup's rendered event cards contain links matching /group-slug/events/DIGITS/
     $('a[href*="/events/"]').each((_, el) => {
